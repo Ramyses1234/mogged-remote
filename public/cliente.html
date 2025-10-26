@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Mogged Controller</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{margin:0;font-family:Segoe UI,Arial;background:#071225;color:#e6eef8}
+.header{display:flex;gap:8px;align-items:center;padding:12px}
+.input{padding:8px;border-radius:8px;border:none;background:#0b1220;color:#fff}
+.btn{padding:8px 12px;border-radius:8px;border:none;cursor:pointer;background:#08f;color:#001;font-weight:700}
+.container{display:flex;gap:12px;padding:12px}
+.left{flex:1}
+.right{width:320px;background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
+#screen{width:100%;border-radius:8px;border:1px solid rgba(255,255,255,0.06);display:block}
+.small{font-size:13px;color:#98a0b3}
+</style>
+</head>
+<body>
+<div class="header">
+  <input id="host" class="input" placeholder="Host ID (cole aqui)"/>
+  <button id="connect" class="btn">Conectar</button>
+  <span id="status" class="small">offline</span>
+</div>
+<div class="container">
+  <div class="left">
+    <img id="screen" alt="screen"/>
+    <div class="small" style="margin-top:8px">Arraste, clique e digite. Use a roda do mouse para rolar.</div>
+  </div>
+  <div class="right">
+    <div style="font-weight:700">Informações</div>
+    <div class="small" style="margin-top:8px">Cole o Host ID que o host enviou.</div>
+    <div style="margin-top:12px"><button id="disconnect" class="input">Desconectar</button></div>
+  </div>
+</div>
+
+<script>
+let ws=null, hostId=null;
+const status = document.getElementById('status');
+const img = document.getElementById('screen');
+function setStatus(s){ status.innerText = s; }
+
+document.getElementById('connect').onclick = ()=>{
+  hostId = document.getElementById('host').value.trim();
+  if(!hostId) return alert('Insira Host ID');
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + location.host + '/');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = ()=> {
+    setStatus('conectando...');
+    ws.send(JSON.stringify({ type:'connect_client', hostId: hostId }));
+  };
+  ws.onmessage = (e)=>{
+    if(typeof e.data === 'string') {
+      const msg = JSON.parse(e.data);
+      if(msg.type === 'connected') setStatus('conectado ao host');
+      if(msg.type === 'error') setStatus('erro: '+msg.msg);
+      return;
+    }
+    const blob = new Blob([e.data], {type:'image/jpeg'});
+    const url = URL.createObjectURL(blob);
+    img.src = url;
+    setTimeout(()=> URL.revokeObjectURL(url), 1500);
+  };
+  ws.onclose = ()=> setStatus('desconectado');
+  ws.onerror = ()=> setStatus('erro');
+};
+
+document.getElementById('disconnect').onclick = ()=>{
+  if(ws) ws.close();
+  ws = null;
+  setStatus('offline');
+  img.src = '';
+};
+
+function sendControl(o){
+  if(!ws || ws.readyState!==1) return;
+  ws.send(JSON.stringify({ type:'control', hostId: hostId, payload: o }));
+}
+
+img.addEventListener('mousemove', (e)=>{
+  if(!img.naturalWidth) return;
+  const rect = img.getBoundingClientRect();
+  const x = Math.round((e.clientX - rect.left) * (img.naturalWidth/rect.width));
+  const y = Math.round((e.clientY - rect.top) * (img.naturalHeight/rect.height));
+  sendControl({ type:'mouse', action:'move', x:x, y:y });
+});
+img.addEventListener('click', (e)=>{
+  const rect = img.getBoundingClientRect();
+  const x = Math.round((e.clientX - rect.left) * (img.naturalWidth/rect.width));
+  const y = Math.round((e.clientY - rect.top) * (img.naturalHeight/rect.height));
+  sendControl({ type:'mouse', action:'click', x:x, y:y, button:'left' });
+});
+img.addEventListener('contextmenu', (e)=>{
+  e.preventDefault();
+  const rect = img.getBoundingClientRect();
+  const x = Math.round((e.clientX - rect.left) * (img.naturalWidth/rect.width));
+  const y = Math.round((e.clientY - rect.top) * (img.naturalHeight/rect.height));
+  sendControl({ type:'mouse', action:'click', x:x, y:y, button:'right' });
+});
+img.addEventListener('wheel', (e)=>{
+  sendControl({ type:'mouse', action:'wheel', delta: e.deltaY });
+});
+
+window.addEventListener('keydown', (e)=>{
+  if(['Shift','Control','Alt','Meta'].includes(e.key)) return;
+  sendControl({ type:'key', key: e.key });
+});
+</script>
+</body>
+</html>
